@@ -1,0 +1,6 @@
+{
+  "name": "BEST UNITED Accounting 1448",
+  "description": "نظام حسابات التأشيرات والنقل والفنادق والخزنة والرواتب - BEST UNITED",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

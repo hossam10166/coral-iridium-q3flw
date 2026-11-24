@@ -1,0 +1,604 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Authenticated workspace owner profile and preferences (non-PII).",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "displayName": { "type": "string", "minLength": 0, "maxLength": 120 },
+        "photoURL": { "type": "string", "minLength": 0, "maxLength": 500 },
+        "rate": { "type": "number" },
+        "lang": { "type": "string", "enum": ["ar", "en"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "rate", "lang", "createdAt", "updatedAt"]
+    },
+    "UserPrivateInfo": {
+      "title": "UserPrivateInfo",
+      "description": "Isolated PII document for authenticated workspace owner.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "email": { "type": "string", "minLength": 3, "maxLength": 200 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "createdAt", "updatedAt"]
+    },
+    "StaffAccount": {
+      "title": "StaffAccount",
+      "description": "Employee login account provisioned by workspace owner with username, role, and module permissions.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "workspaceId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "createdBy": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "username": { "type": "string", "minLength": 2, "maxLength": 60, "pattern": "^[a-z0-9._\\-]+$" },
+        "displayName": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "role": { "type": "string", "enum": ["admin", "staff"] },
+        "active": { "type": "boolean" },
+        "permissions": { "type": "array" },
+        "employeeId": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "workspaceId", "createdBy", "username", "displayName", "role", "active", "permissions", "createdAt", "updatedAt"]
+    },
+    "WorkspaceInvite": {
+      "title": "WorkspaceInvite",
+      "description": "Shared Google email invitation provisioned by workspace owner with role and module permissions.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "workspaceId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "invitedBy": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "email": { "type": "string", "minLength": 3, "maxLength": 200 },
+        "displayName": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "role": { "type": "string", "enum": ["admin", "staff"] },
+        "active": { "type": "boolean" },
+        "permissions": { "type": "array" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "workspaceId", "invitedBy", "email", "displayName", "role", "active", "permissions", "createdAt", "updatedAt"]
+    },
+    "WorkspaceGoogleMember": {
+      "title": "WorkspaceGoogleMember",
+      "description": "Claimed active Google member link tied to a WorkspaceInvite for synchronous Firestore access enforcement.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "workspaceId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "inviteId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "email": { "type": "string", "minLength": 3, "maxLength": 200 },
+        "displayName": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "role": { "type": "string", "enum": ["admin", "staff"] },
+        "active": { "type": "boolean" },
+        "permissions": { "type": "array" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "workspaceId", "inviteId", "email", "displayName", "role", "active", "permissions", "createdAt", "updatedAt"]
+    },
+    "VisaEntry": {
+      "title": "VisaEntry",
+      "description": "Visa group accounting entry.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "number" },
+        "ownerId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "groupNo": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "date": { "type": "string", "minLength": 10, "maxLength": 20 },
+        "pax": { "type": "number" },
+        "customer": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "supplier": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "currency": { "type": "string", "enum": ["SAR", "USD"] },
+        "buy": { "type": "number" },
+        "sell": { "type": "number" },
+        "rate": { "type": "number" },
+        "notes": { "type": "string", "minLength": 0, "maxLength": 500 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "ownerId", "groupNo", "date", "pax", "customer", "supplier", "currency", "buy", "sell", "rate", "createdAt", "updatedAt"]
+    },
+    "TransportEntry": {
+      "title": "TransportEntry",
+      "description": "Transport trip or vehicle operation entry.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "number" },
+        "ownerId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "refNo": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "groupNo": { "type": "string", "minLength": 0, "maxLength": 80 },
+        "date": { "type": "string", "minLength": 10, "maxLength": 20 },
+        "route": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "vehicleType": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "vehicleCount": { "type": "number" },
+        "pax": { "type": "number" },
+        "customer": { "type": "string", "minLength": 0, "maxLength": 160 },
+        "supplier": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "currency": { "type": "string", "enum": ["SAR", "USD"] },
+        "buy": { "type": "number" },
+        "sell": { "type": "number" },
+        "rate": { "type": "number" },
+        "driverName": { "type": "string", "minLength": 0, "maxLength": 120 },
+        "plateNo": { "type": "string", "minLength": 0, "maxLength": 60 },
+        "notes": { "type": "string", "minLength": 0, "maxLength": 500 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "ownerId", "refNo", "date", "route", "vehicleType", "vehicleCount", "supplier", "currency", "buy", "sell", "rate", "createdAt", "updatedAt"]
+    },
+    "HotelBooking": {
+      "title": "HotelBooking",
+      "description": "Hotel reservation in Makkah, Madinah, or Jeddah.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "number" },
+        "ownerId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "refNo": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "groupNo": { "type": "string", "minLength": 0, "maxLength": 80 },
+        "bookingDate": { "type": "string", "minLength": 10, "maxLength": 20 },
+        "city": { "type": "string", "enum": ["makkah", "madinah", "jeddah"] },
+        "hotelName": { "type": "string", "minLength": 1, "maxLength": 180 },
+        "confirmationNo": { "type": "string", "minLength": 0, "maxLength": 80 },
+        "checkIn": { "type": "string", "minLength": 10, "maxLength": 20 },
+        "checkOut": { "type": "string", "minLength": 10, "maxLength": 20 },
+        "nights": { "type": "number" },
+        "roomType": { "type": "string", "enum": ["single", "double", "triple", "quad", "quint", "suite"] },
+        "mealPlan": { "type": "string", "enum": ["RO", "BB", "HB", "FB", "AI"] },
+        "rooms": { "type": "number" },
+        "pax": { "type": "number" },
+        "status": { "type": "string", "enum": ["confirmed", "pending", "checked_in", "checked_out", "cancelled"] },
+        "customer": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "supplier": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "currency": { "type": "string", "enum": ["SAR", "USD"] },
+        "buy": { "type": "number" },
+        "sell": { "type": "number" },
+        "rate": { "type": "number" },
+        "notes": { "type": "string", "minLength": 0, "maxLength": 500 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "ownerId", "refNo", "bookingDate", "city", "hotelName", "checkIn", "checkOut", "nights", "roomType", "mealPlan", "rooms", "status", "customer", "supplier", "currency", "buy", "sell", "rate", "createdAt", "updatedAt"]
+    },
+    "VoucherEntry": {
+      "title": "VoucherEntry",
+      "description": "Receipt or payment voucher.",
+      "type": "object",
+      "properties": {
+        "no": { "type": "string", "minLength": 1, "maxLength": 60 },
+        "ownerId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "type": { "type": "string", "enum": ["receipt", "payment"] },
+        "date": { "type": "string", "minLength": 10, "maxLength": 20 },
+        "party": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "amount": { "type": "number" },
+        "currency": { "type": "string", "enum": ["SAR", "USD"] },
+        "rate": { "type": "number" },
+        "amountSAR": { "type": "number" },
+        "note": { "type": "string", "minLength": 0, "maxLength": 500 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["no", "ownerId", "type", "date", "party", "amount", "currency", "rate", "amountSAR", "createdAt", "updatedAt"]
+    },
+    "TreasuryEntry": {
+      "title": "TreasuryEntry",
+      "description": "Treasury cashbox/bank/custody/payroll vault transaction.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "number" },
+        "ownerId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "refNo": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "date": { "type": "string", "minLength": 10, "maxLength": 20 },
+        "type": { "type": "string", "enum": ["in", "out"] },
+        "category": { "type": "string", "enum": ["expense", "capital", "salary", "advance", "transfer", "receipt_extra", "other"] },
+        "account": { "type": "string", "enum": ["cashbox", "bank", "custody", "payroll_vault"] },
+        "amount": { "type": "number" },
+        "currency": { "type": "string", "enum": ["SAR", "USD", "EGP"] },
+        "rate": { "type": "number" },
+        "amountSAR": { "type": "number" },
+        "amountEGP": { "type": "number" },
+        "amountUSD": { "type": "number" },
+        "description": { "type": "string", "minLength": 1, "maxLength": 240 },
+        "employeeId": { "type": "number" },
+        "employeeName": { "type": "string", "minLength": 0, "maxLength": 160 },
+        "notes": { "type": "string", "minLength": 0, "maxLength": 500 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "ownerId", "refNo", "date", "type", "category", "account", "amount", "currency", "rate", "amountSAR", "description", "createdAt", "updatedAt"]
+    },
+    "EmployeeRecord": {
+      "title": "EmployeeRecord",
+      "description": "Employee profile and salary structure.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "number" },
+        "ownerId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "code": { "type": "string", "minLength": 1, "maxLength": 60 },
+        "name": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "jobTitle": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "department": { "type": "string", "minLength": 0, "maxLength": 120 },
+        "phone": { "type": "string", "minLength": 0, "maxLength": 40 },
+        "nationalId": { "type": "string", "minLength": 0, "maxLength": 40 },
+        "hireDate": { "type": "string", "minLength": 10, "maxLength": 20 },
+        "baseSalary": { "type": "number" },
+        "housingAllowance": { "type": "number" },
+        "transportAllowance": { "type": "number" },
+        "otherAllowance": { "type": "number" },
+        "status": { "type": "string", "enum": ["active", "on_leave", "inactive"] },
+        "salaryDay": { "type": "number" },
+        "notes": { "type": "string", "minLength": 0, "maxLength": 500 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "ownerId", "code", "name", "jobTitle", "hireDate", "baseSalary", "housingAllowance", "transportAllowance", "otherAllowance", "status", "createdAt", "updatedAt"]
+    },
+    "PayrollRecord": {
+      "title": "PayrollRecord",
+      "description": "Payroll salary, advance, bonus, or deduction record with optional manual multi-currency amounts (EGP, USD, SAR).",
+      "type": "object",
+      "properties": {
+        "id": { "type": "number" },
+        "ownerId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "refNo": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "date": { "type": "string", "minLength": 10, "maxLength": 20 },
+        "month": { "type": "string", "minLength": 7, "maxLength": 12 },
+        "employeeId": { "type": "number" },
+        "employeeName": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "recordType": { "type": "string", "enum": ["salary", "advance", "bonus", "deduction"] },
+        "amount": { "type": "number" },
+        "currency": { "type": "string", "enum": ["SAR", "USD", "EGP"] },
+        "rate": { "type": "number" },
+        "amountSAR": { "type": "number" },
+        "amountEGP": { "type": "number" },
+        "amountUSD": { "type": "number" },
+        "postToTreasury": { "type": "boolean" },
+        "treasuryAccount": { "type": "string", "enum": ["cashbox", "bank", "custody", "payroll_vault"] },
+        "linkedTreasuryId": { "type": "number" },
+        "notes": { "type": "string", "minLength": 0, "maxLength": 500 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "ownerId", "refNo", "date", "month", "employeeId", "employeeName", "recordType", "amount", "postToTreasury", "treasuryAccount", "createdAt", "updatedAt"]
+    },
+    "CustomerMaster": {
+      "title": "CustomerMaster",
+      "description": "Coded customer master record.",
+      "type": "object",
+      "properties": {
+        "ownerId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "code": { "type": "string", "minLength": 1, "maxLength": 60 },
+        "name": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "note": { "type": "string", "minLength": 0, "maxLength": 500 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["ownerId", "code", "name", "createdAt", "updatedAt"]
+    },
+    "SupplierMaster": {
+      "title": "SupplierMaster",
+      "description": "Coded supplier master record.",
+      "type": "object",
+      "properties": {
+        "ownerId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "code": { "type": "string", "minLength": 1, "maxLength": 60 },
+        "name": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "category": { "type": "string", "enum": ["all", "both", "visa", "transport", "hotel"] },
+        "note": { "type": "string", "minLength": 0, "maxLength": 500 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["ownerId", "code", "name", "category", "createdAt", "updatedAt"]
+    },
+    "CycleOperation": {
+      "title": "CycleOperation",
+      "description": "5-stage group operational cycle entry.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "ownerId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "groupNo": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "stageKey": { "type": "string", "enum": ["arrival", "ziyarat1", "internal", "ziyarat2", "departure", "custom"] },
+        "stageLabel": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "status": { "type": "string", "enum": ["pending", "in_progress", "completed", "cancelled"] },
+        "direction": { "type": "string", "minLength": 0, "maxLength": 160 },
+        "totalPax": { "type": "number" },
+        "totalBus": { "type": "number" },
+        "date": { "type": "string", "minLength": 0, "maxLength": 20 },
+        "time": { "type": "string", "minLength": 0, "maxLength": 20 },
+        "fromLocation": { "type": "string", "minLength": 0, "maxLength": 160 },
+        "toLocation": { "type": "string", "minLength": 0, "maxLength": 160 },
+        "hotelName": { "type": "string", "minLength": 0, "maxLength": 180 },
+        "routeDetails": { "type": "string", "minLength": 0, "maxLength": 200 },
+        "vehicleType": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "vehicleCount": { "type": "number" },
+        "supplier": { "type": "string", "minLength": 0, "maxLength": 160 },
+        "customer": { "type": "string", "minLength": 0, "maxLength": 160 },
+        "driverName": { "type": "string", "minLength": 0, "maxLength": 120 },
+        "driverPhone": { "type": "string", "minLength": 0, "maxLength": 40 },
+        "plateNo": { "type": "string", "minLength": 0, "maxLength": 60 },
+        "buy": { "type": "number" },
+        "sell": { "type": "number" },
+        "notes": { "type": "string", "minLength": 0, "maxLength": 500 },
+        "linkedTransportId": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "ownerId", "groupNo", "stageKey", "stageLabel", "status", "vehicleType", "vehicleCount", "buy", "sell", "createdAt", "updatedAt"]
+    },
+    "GroupInvoice": {
+      "title": "GroupInvoice",
+      "description": "Group invoice in USD covering pilgrims visas, minpax fixed fee (26.67 USD), and extra route segments (Badr, Train Station, Taif, Hudaibiyah).",
+      "type": "object",
+      "properties": {
+        "id": { "type": "number" },
+        "ownerId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "invoiceNo": { "type": "string", "minLength": 1, "maxLength": 60 },
+        "date": { "type": "string", "minLength": 8, "maxLength": 20 },
+        "groupNo": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "groupName": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "pax": { "type": "number" },
+        "visaPrice": { "type": "number" },
+        "multiEntryVisaCount": { "type": "number" },
+        "multiEntryVisaPrice": { "type": "number" },
+        "minPaxCount": { "type": "number" },
+        "minPaxRate": { "type": "number" },
+        "badrPrice": { "type": "number" },
+        "trainStationPrice": { "type": "number" },
+        "taifPrice": { "type": "number" },
+        "hudaibiyahPrice": { "type": "number" },
+        "customSegmentLabel": { "type": "string", "minLength": 0, "maxLength": 240 },
+        "customSegmentPrice": { "type": "number" },
+        "customSegmentsJson": { "type": "string", "minLength": 0, "maxLength": 2000 },
+        "totalUSD": { "type": "number" },
+        "dueDate": { "type": "string", "minLength": 8, "maxLength": 20 },
+        "paymentStatus": { "type": "string", "enum": ["unpaid", "paid"] },
+        "notes": { "type": "string", "minLength": 0, "maxLength": 500 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "id",
+        "ownerId",
+        "invoiceNo",
+        "date",
+        "groupNo",
+        "groupName",
+        "pax",
+        "visaPrice",
+        "minPaxCount",
+        "minPaxRate",
+        "badrPrice",
+        "trainStationPrice",
+        "taifPrice",
+        "hudaibiyahPrice",
+        "totalUSD",
+        "notes",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "UmrahAgent": {
+      "title": "UmrahAgent",
+      "description": "External Umrah/Hajj agent or partner company in season 1448.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "number" },
+        "ownerId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "code": { "type": "string", "minLength": 1, "maxLength": 60 },
+        "name": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "country": { "type": "string", "minLength": 0, "maxLength": 100 },
+        "licenseNo": { "type": "string", "minLength": 0, "maxLength": 80 },
+        "contactPerson": { "type": "string", "minLength": 0, "maxLength": 120 },
+        "phone": { "type": "string", "minLength": 0, "maxLength": 40 },
+        "email": { "type": "string", "minLength": 0, "maxLength": 160 },
+        "commissionSAR": { "type": "number" },
+        "status": { "type": "string", "enum": ["active", "suspended"] },
+        "notes": { "type": "string", "minLength": 0, "maxLength": 500 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "ownerId", "code", "name", "commissionSAR", "status", "notes", "createdAt", "updatedAt"]
+    },
+    "UmrahGroup": {
+      "title": "UmrahGroup",
+      "description": "Umrah or Hajj group for season 1448 with agent, supervisor, pricing, dates, and lifecycle status.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "number" },
+        "ownerId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "groupCode": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "groupName": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "season": { "type": "string", "minLength": 1, "maxLength": 20 },
+        "programType": { "type": "string", "enum": ["umrah", "hajj"] },
+        "agentName": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "supervisorName": { "type": "string", "minLength": 0, "maxLength": 120 },
+        "targetPax": { "type": "number" },
+        "visaBuySAR": { "type": "number" },
+        "visaSellSAR": { "type": "number" },
+        "packagePriceSAR": { "type": "number" },
+        "arrivalDate": { "type": "string", "minLength": 0, "maxLength": 20 },
+        "departureDate": { "type": "string", "minLength": 0, "maxLength": 20 },
+        "status": { "type": "string", "enum": ["planning", "visas_processing", "in_ksa", "completed", "archived"] },
+        "notes": { "type": "string", "minLength": 0, "maxLength": 500 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "ownerId", "groupCode", "groupName", "season", "programType", "agentName", "targetPax", "visaBuySAR", "visaSellSAR", "packagePriceSAR", "status", "notes", "createdAt", "updatedAt"]
+    },
+    "UmrahPilgrim": {
+      "title": "UmrahPilgrim",
+      "description": "Pilgrim passport, visa status, hotel rooming, flight/bus assignment, arrival check-in, and fees.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "number" },
+        "ownerId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "fullName": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "gender": { "type": "string", "enum": ["male", "female"] },
+        "nationality": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "passportNo": { "type": "string", "minLength": 1, "maxLength": 60 },
+        "passportExpiry": { "type": "string", "minLength": 0, "maxLength": 20 },
+        "birthDate": { "type": "string", "minLength": 0, "maxLength": 20 },
+        "phone": { "type": "string", "minLength": 0, "maxLength": 40 },
+        "groupCode": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "agentName": { "type": "string", "minLength": 0, "maxLength": 160 },
+        "visaNo": { "type": "string", "minLength": 0, "maxLength": 60 },
+        "visaStatus": { "type": "string", "enum": ["draft", "submitted", "issued", "rejected", "cancelled"] },
+        "visaIssueDate": { "type": "string", "minLength": 0, "maxLength": 20 },
+        "makkahHotel": { "type": "string", "minLength": 0, "maxLength": 180 },
+        "makkahRoomNo": { "type": "string", "minLength": 0, "maxLength": 40 },
+        "madinahHotel": { "type": "string", "minLength": 0, "maxLength": 180 },
+        "madinahRoomNo": { "type": "string", "minLength": 0, "maxLength": 40 },
+        "jeddahHotel": { "type": "string", "minLength": 0, "maxLength": 180 },
+        "jeddahRoomNo": { "type": "string", "minLength": 0, "maxLength": 40 },
+        "roomType": { "type": "string", "enum": ["single", "double", "triple", "quad", "quint", "suite"] },
+        "flightNo": { "type": "string", "minLength": 0, "maxLength": 40 },
+        "busNo": { "type": "string", "minLength": 0, "maxLength": 60 },
+        "arrivalStatus": { "type": "string", "enum": ["pending", "arrived", "departed"] },
+        "feeSAR": { "type": "number" },
+        "paidSAR": { "type": "number" },
+        "notes": { "type": "string", "minLength": 0, "maxLength": 500 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "ownerId", "fullName", "gender", "nationality", "passportNo", "groupCode", "visaStatus", "roomType", "arrivalStatus", "feeSAR", "paidSAR", "notes", "createdAt", "updatedAt"]
+    },
+    "UmrahFlight": {
+      "title": "UmrahFlight",
+      "description": "Umrah arrival or departure flight schedule with terminal, group, and bus assignment.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "number" },
+        "ownerId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "flightNo": { "type": "string", "minLength": 1, "maxLength": 40 },
+        "airline": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "direction": { "type": "string", "enum": ["arrival", "departure"] },
+        "originAirport": { "type": "string", "minLength": 0, "maxLength": 80 },
+        "destAirport": { "type": "string", "minLength": 0, "maxLength": 80 },
+        "flightDate": { "type": "string", "minLength": 8, "maxLength": 20 },
+        "flightTime": { "type": "string", "minLength": 0, "maxLength": 20 },
+        "terminal": { "type": "string", "minLength": 0, "maxLength": 60 },
+        "groupCode": { "type": "string", "minLength": 0, "maxLength": 80 },
+        "paxCount": { "type": "number" },
+        "busAssigned": { "type": "string", "minLength": 0, "maxLength": 80 },
+        "supervisorName": { "type": "string", "minLength": 0, "maxLength": 120 },
+        "status": { "type": "string", "enum": ["scheduled", "landed", "delayed", "departed", "cancelled"] },
+        "notes": { "type": "string", "minLength": 0, "maxLength": 500 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "ownerId", "flightNo", "airline", "direction", "flightDate", "paxCount", "status", "notes", "createdAt", "updatedAt"]
+    },
+    "UmrahFieldStaff": {
+      "title": "UmrahFieldStaff",
+      "description": "Field supervisor or airport/hotel delegate tracking.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "number" },
+        "ownerId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "role": { "type": "string", "enum": ["supervisor", "delegate", "driver_coord"] },
+        "phone": { "type": "string", "minLength": 0, "maxLength": 40 },
+        "city": { "type": "string", "enum": ["makkah", "madinah", "jeddah", "airport"] },
+        "assignedGroup": { "type": "string", "minLength": 0, "maxLength": 80 },
+        "assignedBus": { "type": "string", "minLength": 0, "maxLength": 80 },
+        "shiftStatus": { "type": "string", "enum": ["on_duty", "standby", "off_duty"] },
+        "notes": { "type": "string", "minLength": 0, "maxLength": 500 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "ownerId", "name", "role", "city", "shiftStatus", "notes", "createdAt", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/staffAccounts/{staffUid}": {
+      "schema": { "$ref": "#/entities/StaffAccount" },
+      "description": "Employee login accounts with role and module permissions, managed by the workspace owner."
+    },
+    "/workspaceInvites/{inviteId}": {
+      "schema": { "$ref": "#/entities/WorkspaceInvite" },
+      "description": "Invited Google email access grants managed by the workspace owner."
+    },
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Authenticated workspace owner profile and preferences."
+    },
+    "/users/{userId}/googleMembers/{memberUid}": {
+      "schema": { "$ref": "#/entities/WorkspaceGoogleMember" },
+      "description": "Verified Google collaborators bound to active workspace invites."
+    },
+    "/users/{userId}/private/{docId}": {
+      "schema": { "$ref": "#/entities/UserPrivateInfo" },
+      "description": "Isolated PII document for authenticated workspace owner."
+    },
+    "/users/{userId}/entries/{entryId}": {
+      "schema": { "$ref": "#/entities/VisaEntry" },
+      "description": "Visa group records inside the workspace."
+    },
+    "/users/{userId}/transports/{transportId}": {
+      "schema": { "$ref": "#/entities/TransportEntry" },
+      "description": "Transport operations inside the workspace."
+    },
+    "/users/{userId}/hotels/{hotelId}": {
+      "schema": { "$ref": "#/entities/HotelBooking" },
+      "description": "Hotel bookings inside the workspace."
+    },
+    "/users/{userId}/vouchers/{voucherId}": {
+      "schema": { "$ref": "#/entities/VoucherEntry" },
+      "description": "Receipt and payment vouchers inside the workspace."
+    },
+    "/users/{userId}/treasury/{txId}": {
+      "schema": { "$ref": "#/entities/TreasuryEntry" },
+      "description": "Treasury cashbox, bank, and custody transactions inside the workspace."
+    },
+    "/users/{userId}/employees/{employeeId}": {
+      "schema": { "$ref": "#/entities/EmployeeRecord" },
+      "description": "Employee directory records inside the workspace."
+    },
+    "/users/{userId}/payroll/{payrollId}": {
+      "schema": { "$ref": "#/entities/PayrollRecord" },
+      "description": "Payroll, advance, bonus, and deduction records inside the workspace."
+    },
+    "/users/{userId}/customers/{customerId}": {
+      "schema": { "$ref": "#/entities/CustomerMaster" },
+      "description": "Coded customers inside the workspace."
+    },
+    "/users/{userId}/suppliers/{supplierId}": {
+      "schema": { "$ref": "#/entities/SupplierMaster" },
+      "description": "Coded suppliers inside the workspace."
+    },
+    "/users/{userId}/cycleOperations/{opId}": {
+      "schema": { "$ref": "#/entities/CycleOperation" },
+      "description": "5-stage operational cycle records inside the workspace."
+    },
+    "/users/{userId}/invoices/{invoiceId}": {
+      "schema": { "$ref": "#/entities/GroupInvoice" },
+      "description": "Group invoices in USD inside the workspace."
+    },
+    "/users/{userId}/umrahAgents/{agentId}": {
+      "schema": { "$ref": "#/entities/UmrahAgent" },
+      "description": "Umrah 1448 partner companies and external agents."
+    },
+    "/users/{userId}/umrahGroups/{groupId}": {
+      "schema": { "$ref": "#/entities/UmrahGroup" },
+      "description": "Umrah and Hajj 1448 operational groups."
+    },
+    "/users/{userId}/umrahPilgrims/{pilgrimId}": {
+      "schema": { "$ref": "#/entities/UmrahPilgrim" },
+      "description": "Umrah 1448 pilgrims, passports, visa issuance, hotel rooming, and arrival tracking."
+    },
+    "/users/{userId}/umrahFlights/{flightId}": {
+      "schema": { "$ref": "#/entities/UmrahFlight" },
+      "description": "Umrah 1448 flights, arrivals, and departures."
+    },
+    "/users/{userId}/umrahFieldStaff/{staffId}": {
+      "schema": { "$ref": "#/entities/UmrahFieldStaff" },
+      "description": "Umrah 1448 supervisors and field delegates."
+    }
+  }
+}

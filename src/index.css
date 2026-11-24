@@ -1,0 +1,168 @@
+@import "tailwindcss";
+
+@layer base {
+  body {
+    margin: 0;
+    background-color: #f6f8fb;
+    color: #0f172a;
+    font-family: "IBM Plex Sans Arabic", Tahoma, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+}
+
+.font-mono-num {
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+@media print {
+  @page {
+    size: auto;
+    margin: 4mm;
+  }
+  @page opsLandscape {
+    size: A4 landscape;
+    margin: 4mm;
+  }
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  body {
+    background: #ffffff !important;
+    padding: 0 !important;
+  }
+  body.printing-ops {
+    padding: 0 !important;
+  }
+  .app-shell {
+    display: block !important;
+    min-height: 0 !important;
+    background: #ffffff !important;
+  }
+  .no-print {
+    display: none !important;
+  }
+  .print-letterhead {
+    display: flex !important;
+    padding-bottom: 6px !important;
+    margin-bottom: 8px !important;
+  }
+  body.printing-invoice .print-letterhead,
+  body.printing-ops .print-letterhead {
+    display: none !important;
+  }
+  .main-content {
+    margin: 0 !important;
+    width: 100% !important;
+    padding: 0 !important;
+  }
+  .print-panel {
+    box-shadow: none !important;
+    border: none !important;
+    border-radius: 0 !important;
+    break-inside: auto;
+  }
+  .print-panel > div {
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+    padding-top: 6px !important;
+    padding-bottom: 6px !important;
+  }
+  .overflow-x-auto {
+    overflow: visible !important;
+  }
+  .ledger-print-table {
+    width: 100% !important;
+    table-layout: auto !important;
+    font-size: 10.5px !important;
+    line-height: 1.35 !important;
+  }
+  .ledger-print-table th,
+  .ledger-print-table td {
+    padding: 4px 5px !important;
+    white-space: normal !important;
+    word-break: break-word;
+  }
+  .ledger-print-table td.font-mono-num,
+  .ledger-print-table th.whitespace-nowrap {
+    white-space: nowrap !important;
+  }
+  .ledger-print-table thead {
+    display: table-header-group;
+  }
+  .ledger-print-table tr {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .ops-print-sheet {
+    page: opsLandscape;
+    display: block !important;
+    width: 100% !important;
+    background: #ffffff !important;
+  }
+  .ops-print-sheet table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+  }
+  .ops-print-sheet thead {
+    display: table-header-group;
+  }
+  .ops-print-sheet tfoot {
+    display: table-row-group;
+  }
+  .ops-print-sheet tr {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .ops-print-scroll {
+    overflow: visible !important;
+  }
+  .ops-print-table {
+    min-width: 0 !important;
+    width: 100% !important;
+    font-size: 15px !important;
+    line-height: 1.4 !important;
+    table-layout: auto !important;
+  }
+  .ops-print-table thead th {
+    font-size: 14px !important;
+    font-weight: 800 !important;
+    padding: 8px 6px !important;
+    white-space: normal !important;
+  }
+  .ops-print-table tbody td {
+    font-size: 15px !important;
+    font-weight: 600 !important;
+    padding: 8px 6px !important;
+    vertical-align: middle !important;
+  }
+  .ops-print-table tfoot td {
+    font-size: 15.5px !important;
+    font-weight: 800 !important;
+    padding: 9px 6px !important;
+  }
+  .ops-print-table tbody td select {
+    appearance: none !important;
+    -webkit-appearance: none !important;
+    font-size: 14px !important;
+    font-weight: 700 !important;
+    padding: 2px 6px !important;
+  }
+  .ops-print-table .ops-driver-header,
+  .ops-print-table .ops-driver-header svg,
+  .ops-print-table .ops-driver-cell,
+  .ops-print-table .ops-driver-cell svg {
+    color: #dc2626 !important;
+    stroke: #dc2626 !important;
+    font-weight: 800 !important;
+  }
+  .ops-print-table .ops-driver-cell {
+    font-size: 16px !important;
+  }
+}
+

@@ -1,0 +1,934 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global default-deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Reusable Hardened Helpers ---
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isVerifiedUser() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isActiveStaffFor(workspaceId) {
+      return isSignedIn()
+        && request.auth.token.firebase.sign_in_provider == 'password'
+        && exists(/databases/$(database)/documents/staffAccounts/$(request.auth.uid))
+        && get(/databases/$(database)/documents/staffAccounts/$(request.auth.uid)).data.workspaceId == workspaceId
+        && get(/databases/$(database)/documents/staffAccounts/$(request.auth.uid)).data.active == true;
+    }
+
+    function isActiveGoogleMemberFor(workspaceId) {
+      return isVerifiedUser()
+        && request.auth.token.email is string
+        && exists(/databases/$(database)/documents/users/$(workspaceId)/googleMembers/$(request.auth.uid))
+        && get(/databases/$(database)/documents/users/$(workspaceId)/googleMembers/$(request.auth.uid)).data.active == true
+        && isValidId(get(/databases/$(database)/documents/users/$(workspaceId)/googleMembers/$(request.auth.uid)).data.inviteId)
+        && exists(/databases/$(database)/documents/workspaceInvites/$(get(/databases/$(database)/documents/users/$(workspaceId)/googleMembers/$(request.auth.uid)).data.inviteId))
+        && get(/databases/$(database)/documents/workspaceInvites/$(get(/databases/$(database)/documents/users/$(workspaceId)/googleMembers/$(request.auth.uid)).data.inviteId)).data.workspaceId == workspaceId
+        && get(/databases/$(database)/documents/workspaceInvites/$(get(/databases/$(database)/documents/users/$(workspaceId)/googleMembers/$(request.auth.uid)).data.inviteId)).data.email == request.auth.token.email.lower()
+        && get(/databases/$(database)/documents/workspaceInvites/$(get(/databases/$(database)/documents/users/$(workspaceId)/googleMembers/$(request.auth.uid)).data.inviteId)).data.active == true;
+    }
+
+    function hasWorkspaceAccess(workspaceId) {
+      return isOwner(workspaceId) || isActiveStaffFor(workspaceId) || isActiveGoogleMemberFor(workspaceId);
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidStr(val, minLen, maxLen) {
+      return val is string && val.size() >= minLen && val.size() <= maxLen;
+    }
+
+    function isValidCurrency(cur) {
+      return cur in ['SAR', 'USD'];
+    }
+
+    function isValidTreasuryCurrency(cur) {
+      return cur in ['SAR', 'USD', 'EGP'];
+    }
+
+    function isValidTreasuryAccount(acc) {
+      return acc in ['cashbox', 'bank', 'custody', 'payroll_vault'];
+    }
+
+    function userProfileExists(userId) {
+      return exists(/databases/$(database)/documents/users/$(userId));
+    }
+
+    // --- Entity Validation Blueprints ---
+    function isValidUserProfile(data, userId) {
+      return data.keys().hasAll(['uid', 'displayName', 'photoURL', 'rate', 'lang', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'displayName', 'photoURL', 'rate', 'lang', 'createdAt', 'updatedAt'])
+        && isValidId(data.uid)
+        && data.uid == userId
+        && isValidStr(data.displayName, 0, 120)
+        && isValidStr(data.photoURL, 0, 500)
+        && data.rate is number && data.rate > 0 && data.rate <= 1000
+        && data.lang in ['ar', 'en']
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidUserPrivateInfo(data, userId) {
+      return data.keys().hasAll(['uid', 'email', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'email', 'createdAt', 'updatedAt'])
+        && isValidId(data.uid)
+        && data.uid == userId
+        && isValidStr(data.email, 3, 200)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidStaffAccount(data, staffUid) {
+      return data.keys().hasAll(['uid', 'workspaceId', 'createdBy', 'username', 'displayName', 'role', 'active', 'permissions', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'workspaceId', 'createdBy', 'username', 'displayName', 'role', 'active', 'permissions', 'employeeId', 'createdAt', 'updatedAt'])
+        && isValidId(data.uid)
+        && data.uid == staffUid
+        && isValidId(data.workspaceId)
+        && isValidId(data.createdBy)
+        && isValidStr(data.username, 2, 60)
+        && data.username.matches('^[a-z0-9._\\-]+$')
+        && isValidStr(data.displayName, 1, 120)
+        && data.role in ['admin', 'staff']
+        && data.active is bool
+        && data.permissions is list
+        && data.permissions.size() >= 1 && data.permissions.size() <= 20
+        && data.permissions[0] is string
+        && data.permissions.hasOnly(['dashboard', 'entry', 'umrahVisa1448', 'transport', 'hotels', 'groups', 'operations', 'customers', 'suppliers', 'coding', 'customerLedger', 'supplierLedger', 'voucher', 'invoice', 'treasury', 'employees', 'reports', 'settings'])
+        && (!('employeeId' in data) || data.employeeId is number)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidWorkspaceInvite(data, inviteId) {
+      return data.keys().hasAll(['id', 'workspaceId', 'invitedBy', 'email', 'displayName', 'role', 'active', 'permissions', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'workspaceId', 'invitedBy', 'email', 'displayName', 'role', 'active', 'permissions', 'createdAt', 'updatedAt'])
+        && isValidId(data.id)
+        && data.id == inviteId
+        && isValidId(data.workspaceId)
+        && isValidId(data.invitedBy)
+        && isValidStr(data.email, 3, 200)
+        && data.email.matches('^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$')
+        && isValidStr(data.displayName, 1, 120)
+        && data.role in ['admin', 'staff']
+        && data.active is bool
+        && data.permissions is list
+        && data.permissions.size() >= 1 && data.permissions.size() <= 20
+        && data.permissions[0] is string
+        && data.permissions.hasOnly(['dashboard', 'entry', 'umrahVisa1448', 'transport', 'hotels', 'groups', 'operations', 'customers', 'suppliers', 'coding', 'customerLedger', 'supplierLedger', 'voucher', 'invoice', 'treasury', 'employees', 'reports', 'settings'])
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidGoogleMember(data, userId, memberUid) {
+      return data.keys().hasAll(['uid', 'workspaceId', 'inviteId', 'email', 'displayName', 'role', 'active', 'permissions', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'workspaceId', 'inviteId', 'email', 'displayName', 'role', 'active', 'permissions', 'createdAt', 'updatedAt'])
+        && isValidId(data.uid)
+        && data.uid == memberUid
+        && isValidId(data.workspaceId)
+        && data.workspaceId == userId
+        && isValidId(data.inviteId)
+        && isValidStr(data.email, 3, 200)
+        && isValidStr(data.displayName, 1, 120)
+        && data.role in ['admin', 'staff']
+        && data.active is bool
+        && data.permissions is list
+        && data.permissions.size() >= 1 && data.permissions.size() <= 20
+        && data.permissions[0] is string
+        && data.permissions.hasOnly(['dashboard', 'entry', 'umrahVisa1448', 'transport', 'hotels', 'groups', 'operations', 'customers', 'suppliers', 'coding', 'customerLedger', 'supplierLedger', 'voucher', 'invoice', 'treasury', 'employees', 'reports', 'settings'])
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidVisaEntry(data, userId) {
+      return data.keys().hasAll(['id', 'ownerId', 'groupNo', 'date', 'pax', 'customer', 'supplier', 'currency', 'buy', 'sell', 'rate', 'notes', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'ownerId', 'groupNo', 'date', 'pax', 'customer', 'supplier', 'currency', 'buy', 'sell', 'rate', 'notes', 'createdAt', 'updatedAt'])
+        && data.id is number
+        && data.ownerId == userId
+        && isValidStr(data.groupNo, 1, 80)
+        && isValidStr(data.date, 8, 20)
+        && data.pax is number && data.pax >= 1
+        && isValidStr(data.customer, 1, 160)
+        && isValidStr(data.supplier, 1, 160)
+        && isValidCurrency(data.currency)
+        && data.buy is number && data.buy >= 0
+        && data.sell is number && data.sell >= 0
+        && data.rate is number && data.rate > 0
+        && isValidStr(data.notes, 0, 500)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidTransportEntry(data, userId) {
+      return data.keys().hasAll(['id', 'ownerId', 'refNo', 'groupNo', 'date', 'route', 'vehicleType', 'vehicleCount', 'pax', 'customer', 'supplier', 'currency', 'buy', 'sell', 'rate', 'driverName', 'plateNo', 'notes', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'ownerId', 'refNo', 'groupNo', 'date', 'route', 'vehicleType', 'vehicleCount', 'pax', 'customer', 'supplier', 'currency', 'buy', 'sell', 'rate', 'driverName', 'plateNo', 'notes', 'createdAt', 'updatedAt'])
+        && data.id is number
+        && data.ownerId == userId
+        && isValidStr(data.refNo, 1, 80)
+        && isValidStr(data.groupNo, 0, 80)
+        && isValidStr(data.date, 8, 20)
+        && isValidStr(data.route, 1, 160)
+        && isValidStr(data.vehicleType, 1, 100)
+        && data.vehicleCount is number && data.vehicleCount >= 1
+        && data.pax is number && data.pax >= 0
+        && isValidStr(data.customer, 0, 160)
+        && isValidStr(data.supplier, 1, 160)
+        && isValidCurrency(data.currency)
+        && data.buy is number && data.buy >= 0
+        && data.sell is number && data.sell >= 0
+        && data.rate is number && data.rate > 0
+        && isValidStr(data.driverName, 0, 120)
+        && isValidStr(data.plateNo, 0, 60)
+        && isValidStr(data.notes, 0, 500)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidHotelBooking(data, userId) {
+      return data.keys().hasAll(['id', 'ownerId', 'refNo', 'groupNo', 'bookingDate', 'city', 'hotelName', 'confirmationNo', 'checkIn', 'checkOut', 'nights', 'roomType', 'mealPlan', 'rooms', 'pax', 'status', 'customer', 'supplier', 'currency', 'buy', 'sell', 'rate', 'notes', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'ownerId', 'refNo', 'groupNo', 'bookingDate', 'city', 'hotelName', 'confirmationNo', 'checkIn', 'checkOut', 'nights', 'roomType', 'mealPlan', 'rooms', 'pax', 'status', 'customer', 'supplier', 'currency', 'buy', 'sell', 'rate', 'notes', 'createdAt', 'updatedAt'])
+        && data.id is number
+        && data.ownerId == userId
+        && isValidStr(data.refNo, 1, 80)
+        && isValidStr(data.groupNo, 0, 80)
+        && isValidStr(data.bookingDate, 8, 20)
+        && data.city in ['makkah', 'madinah', 'jeddah']
+        && isValidStr(data.hotelName, 1, 180)
+        && isValidStr(data.confirmationNo, 0, 80)
+        && isValidStr(data.checkIn, 8, 20)
+        && isValidStr(data.checkOut, 8, 20)
+        && data.nights is number && data.nights >= 1 && data.nights <= 365
+        && data.roomType in ['single', 'double', 'triple', 'quad', 'quint', 'suite']
+        && data.mealPlan in ['RO', 'BB', 'HB', 'FB', 'AI']
+        && data.rooms is number && data.rooms >= 1
+        && data.pax is number && data.pax >= 0
+        && data.status in ['confirmed', 'pending', 'checked_in', 'checked_out', 'cancelled']
+        && isValidStr(data.customer, 1, 160)
+        && isValidStr(data.supplier, 1, 160)
+        && isValidCurrency(data.currency)
+        && data.buy is number && data.buy >= 0
+        && data.sell is number && data.sell >= 0
+        && data.rate is number && data.rate > 0
+        && isValidStr(data.notes, 0, 500)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidVoucherEntry(data, userId) {
+      return data.keys().hasAll(['no', 'ownerId', 'type', 'date', 'party', 'amount', 'currency', 'rate', 'amountSAR', 'note', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['no', 'ownerId', 'type', 'date', 'party', 'amount', 'currency', 'rate', 'amountSAR', 'note', 'createdAt', 'updatedAt'])
+        && isValidStr(data.no, 1, 60)
+        && data.ownerId == userId
+        && data.type in ['receipt', 'payment']
+        && isValidStr(data.date, 8, 20)
+        && isValidStr(data.party, 1, 160)
+        && data.amount is number && data.amount > 0
+        && isValidCurrency(data.currency)
+        && data.rate is number && data.rate > 0
+        && data.amountSAR is number && data.amountSAR > 0
+        && isValidStr(data.note, 0, 500)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidTreasuryEntry(data, userId) {
+      return data.keys().hasAll(['id', 'ownerId', 'refNo', 'date', 'type', 'category', 'account', 'amount', 'currency', 'rate', 'amountSAR', 'description', 'employeeName', 'notes', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'ownerId', 'refNo', 'date', 'type', 'category', 'account', 'amount', 'currency', 'rate', 'amountSAR', 'amountEGP', 'amountUSD', 'description', 'employeeId', 'employeeName', 'notes', 'createdAt', 'updatedAt'])
+        && data.id is number
+        && data.ownerId == userId
+        && isValidStr(data.refNo, 1, 80)
+        && isValidStr(data.date, 8, 20)
+        && data.type in ['in', 'out']
+        && data.category in ['expense', 'capital', 'salary', 'advance', 'transfer', 'receipt_extra', 'other']
+        && isValidTreasuryAccount(data.account)
+        && data.amount is number && data.amount > 0
+        && isValidTreasuryCurrency(data.currency)
+        && data.rate is number && data.rate > 0
+        && data.amountSAR is number && data.amountSAR > 0
+        && (!('amountEGP' in data) || (data.amountEGP is number && data.amountEGP >= 0))
+        && (!('amountUSD' in data) || (data.amountUSD is number && data.amountUSD >= 0))
+        && isValidStr(data.description, 1, 240)
+        && (!('employeeId' in data) || data.employeeId is number)
+        && isValidStr(data.employeeName, 0, 160)
+        && isValidStr(data.notes, 0, 500)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidEmployeeRecord(data, userId) {
+      return data.keys().hasAll(['id', 'ownerId', 'code', 'name', 'jobTitle', 'department', 'phone', 'nationalId', 'hireDate', 'baseSalary', 'housingAllowance', 'transportAllowance', 'otherAllowance', 'status', 'notes', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'ownerId', 'code', 'name', 'jobTitle', 'department', 'phone', 'nationalId', 'hireDate', 'baseSalary', 'housingAllowance', 'transportAllowance', 'otherAllowance', 'status', 'salaryDay', 'notes', 'createdAt', 'updatedAt'])
+        && data.id is number
+        && data.ownerId == userId
+        && isValidStr(data.code, 1, 60)
+        && isValidStr(data.name, 1, 160)
+        && isValidStr(data.jobTitle, 1, 120)
+        && isValidStr(data.department, 0, 120)
+        && isValidStr(data.phone, 0, 40)
+        && isValidStr(data.nationalId, 0, 40)
+        && isValidStr(data.hireDate, 8, 20)
+        && data.baseSalary is number && data.baseSalary >= 0
+        && data.housingAllowance is number && data.housingAllowance >= 0
+        && data.transportAllowance is number && data.transportAllowance >= 0
+        && data.otherAllowance is number && data.otherAllowance >= 0
+        && data.status in ['active', 'on_leave', 'inactive']
+        && (!('salaryDay' in data) || (data.salaryDay is number && data.salaryDay >= 1 && data.salaryDay <= 31))
+        && isValidStr(data.notes, 0, 500)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidPayrollRecord(data, userId) {
+      return data.keys().hasAll(['id', 'ownerId', 'refNo', 'date', 'month', 'employeeId', 'employeeName', 'recordType', 'amount', 'postToTreasury', 'treasuryAccount', 'notes', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'ownerId', 'refNo', 'date', 'month', 'employeeId', 'employeeName', 'recordType', 'amount', 'currency', 'rate', 'amountSAR', 'amountEGP', 'amountUSD', 'postToTreasury', 'treasuryAccount', 'linkedTreasuryId', 'notes', 'createdAt', 'updatedAt'])
+        && data.id is number
+        && data.ownerId == userId
+        && isValidStr(data.refNo, 1, 80)
+        && isValidStr(data.date, 8, 20)
+        && isValidStr(data.month, 6, 12)
+        && data.employeeId is number
+        && isValidStr(data.employeeName, 1, 160)
+        && data.recordType in ['salary', 'advance', 'bonus', 'deduction']
+        && data.amount is number && data.amount > 0
+        && (!('currency' in data) || isValidTreasuryCurrency(data.currency))
+        && (!('rate' in data) || (data.rate is number && data.rate > 0))
+        && (!('amountSAR' in data) || (data.amountSAR is number && data.amountSAR >= 0))
+        && (!('amountEGP' in data) || (data.amountEGP is number && data.amountEGP >= 0))
+        && (!('amountUSD' in data) || (data.amountUSD is number && data.amountUSD >= 0))
+        && data.postToTreasury is bool
+        && isValidTreasuryAccount(data.treasuryAccount)
+        && (!('linkedTreasuryId' in data) || data.linkedTreasuryId is number)
+        && isValidStr(data.notes, 0, 500)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidCustomerMaster(data, userId) {
+      return data.keys().hasAll(['ownerId', 'code', 'name', 'note', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['ownerId', 'code', 'name', 'note', 'createdAt', 'updatedAt'])
+        && data.ownerId == userId
+        && isValidStr(data.code, 1, 60)
+        && isValidStr(data.name, 1, 160)
+        && isValidStr(data.note, 0, 500)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidSupplierMaster(data, userId) {
+      return data.keys().hasAll(['ownerId', 'code', 'name', 'category', 'note', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['ownerId', 'code', 'name', 'category', 'note', 'createdAt', 'updatedAt'])
+        && data.ownerId == userId
+        && isValidStr(data.code, 1, 60)
+        && isValidStr(data.name, 1, 160)
+        && data.category in ['all', 'both', 'visa', 'transport', 'hotel']
+        && isValidStr(data.note, 0, 500)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidCycleOperation(data, userId) {
+      return data.keys().hasAll(['id', 'ownerId', 'groupNo', 'stageKey', 'stageLabel', 'status', 'date', 'time', 'routeDetails', 'vehicleType', 'vehicleCount', 'supplier', 'driverName', 'plateNo', 'buy', 'sell', 'notes', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'ownerId', 'groupNo', 'stageKey', 'stageLabel', 'status', 'direction', 'totalPax', 'totalBus', 'date', 'time', 'fromLocation', 'toLocation', 'hotelName', 'routeDetails', 'vehicleType', 'vehicleCount', 'supplier', 'customer', 'driverName', 'driverPhone', 'plateNo', 'buy', 'sell', 'notes', 'linkedTransportId', 'createdAt', 'updatedAt'])
+        && isValidStr(data.id, 1, 128)
+        && data.ownerId == userId
+        && isValidStr(data.groupNo, 1, 80)
+        && data.stageKey in ['arrival', 'ziyarat1', 'internal', 'ziyarat2', 'departure', 'custom']
+        && isValidStr(data.stageLabel, 1, 120)
+        && data.status in ['pending', 'in_progress', 'completed', 'cancelled']
+        && (!('direction' in data) || isValidStr(data.direction, 0, 160))
+        && (!('totalPax' in data) || (data.totalPax is number && data.totalPax >= 0))
+        && (!('totalBus' in data) || (data.totalBus is number && data.totalBus >= 0))
+        && isValidStr(data.date, 0, 20)
+        && isValidStr(data.time, 0, 20)
+        && (!('fromLocation' in data) || isValidStr(data.fromLocation, 0, 160))
+        && (!('toLocation' in data) || isValidStr(data.toLocation, 0, 160))
+        && (!('hotelName' in data) || isValidStr(data.hotelName, 0, 180))
+        && isValidStr(data.routeDetails, 0, 200)
+        && isValidStr(data.vehicleType, 1, 100)
+        && data.vehicleCount is number && data.vehicleCount >= 1
+        && isValidStr(data.supplier, 0, 160)
+        && (!('customer' in data) || isValidStr(data.customer, 0, 160))
+        && isValidStr(data.driverName, 0, 120)
+        && (!('driverPhone' in data) || isValidStr(data.driverPhone, 0, 40))
+        && isValidStr(data.plateNo, 0, 60)
+        && data.buy is number && data.buy >= 0
+        && data.sell is number && data.sell >= 0
+        && isValidStr(data.notes, 0, 500)
+        && (!('linkedTransportId' in data) || data.linkedTransportId is number)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidGroupInvoice(data, userId) {
+      return data.keys().hasAll(['id', 'ownerId', 'invoiceNo', 'date', 'groupNo', 'groupName', 'pax', 'visaPrice', 'minPaxCount', 'minPaxRate', 'badrPrice', 'trainStationPrice', 'taifPrice', 'hudaibiyahPrice', 'totalUSD', 'notes', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'ownerId', 'invoiceNo', 'date', 'groupNo', 'groupName', 'pax', 'visaPrice', 'multiEntryVisaCount', 'multiEntryVisaPrice', 'minPaxCount', 'minPaxRate', 'badrPrice', 'trainStationPrice', 'taifPrice', 'hudaibiyahPrice', 'customSegmentLabel', 'customSegmentPrice', 'customSegmentsJson', 'totalUSD', 'dueDate', 'paymentStatus', 'notes', 'createdAt', 'updatedAt'])
+        && data.id is number
+        && data.ownerId == userId
+        && isValidStr(data.invoiceNo, 1, 60)
+        && isValidStr(data.date, 8, 20)
+        && isValidStr(data.groupNo, 1, 80)
+        && isValidStr(data.groupName, 1, 160)
+        && data.pax is number && data.pax >= 0
+        && data.visaPrice is number && data.visaPrice >= 0
+        && (!('multiEntryVisaCount' in data) || (data.multiEntryVisaCount is number && data.multiEntryVisaCount >= 0))
+        && (!('multiEntryVisaPrice' in data) || (data.multiEntryVisaPrice is number && data.multiEntryVisaPrice >= 0))
+        && data.minPaxCount is number && data.minPaxCount >= 0
+        && data.minPaxRate is number && data.minPaxRate >= 0
+        && data.badrPrice is number && data.badrPrice >= 0
+        && data.trainStationPrice is number && data.trainStationPrice >= 0
+        && data.taifPrice is number && data.taifPrice >= 0
+        && data.hudaibiyahPrice is number && data.hudaibiyahPrice >= 0
+        && (!('customSegmentLabel' in data) || isValidStr(data.customSegmentLabel, 0, 240))
+        && (!('customSegmentPrice' in data) || (data.customSegmentPrice is number && data.customSegmentPrice >= 0))
+        && (!('customSegmentsJson' in data) || isValidStr(data.customSegmentsJson, 0, 2000))
+        && data.totalUSD is number && data.totalUSD >= 0
+        && (!('dueDate' in data) || isValidStr(data.dueDate, 8, 20))
+        && (!('paymentStatus' in data) || data.paymentStatus in ['unpaid', 'paid'])
+        && isValidStr(data.notes, 0, 500)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidUmrahAgent(data, userId) {
+      return data.keys().hasAll(['id', 'ownerId', 'code', 'name', 'country', 'licenseNo', 'contactPerson', 'phone', 'email', 'commissionSAR', 'status', 'notes', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'ownerId', 'code', 'name', 'country', 'licenseNo', 'contactPerson', 'phone', 'email', 'commissionSAR', 'status', 'notes', 'createdAt', 'updatedAt'])
+        && data.id is number
+        && data.ownerId == userId
+        && isValidStr(data.code, 1, 60)
+        && isValidStr(data.name, 1, 160)
+        && isValidStr(data.country, 0, 100)
+        && isValidStr(data.licenseNo, 0, 80)
+        && isValidStr(data.contactPerson, 0, 120)
+        && isValidStr(data.phone, 0, 40)
+        && isValidStr(data.email, 0, 160)
+        && data.commissionSAR is number && data.commissionSAR >= 0
+        && data.status in ['active', 'suspended']
+        && isValidStr(data.notes, 0, 500)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidUmrahGroup(data, userId) {
+      return data.keys().hasAll(['id', 'ownerId', 'groupCode', 'groupName', 'season', 'programType', 'agentName', 'supervisorName', 'targetPax', 'visaBuySAR', 'visaSellSAR', 'packagePriceSAR', 'arrivalDate', 'departureDate', 'status', 'notes', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'ownerId', 'groupCode', 'groupName', 'season', 'programType', 'agentName', 'supervisorName', 'targetPax', 'visaBuySAR', 'visaSellSAR', 'packagePriceSAR', 'arrivalDate', 'departureDate', 'status', 'notes', 'createdAt', 'updatedAt'])
+        && data.id is number
+        && data.ownerId == userId
+        && isValidStr(data.groupCode, 1, 80)
+        && isValidStr(data.groupName, 1, 160)
+        && isValidStr(data.season, 1, 20)
+        && data.programType in ['umrah', 'hajj']
+        && isValidStr(data.agentName, 1, 160)
+        && isValidStr(data.supervisorName, 0, 120)
+        && data.targetPax is number && data.targetPax >= 0
+        && data.visaBuySAR is number && data.visaBuySAR >= 0
+        && data.visaSellSAR is number && data.visaSellSAR >= 0
+        && data.packagePriceSAR is number && data.packagePriceSAR >= 0
+        && isValidStr(data.arrivalDate, 0, 20)
+        && isValidStr(data.departureDate, 0, 20)
+        && data.status in ['planning', 'visas_processing', 'in_ksa', 'completed', 'archived']
+        && isValidStr(data.notes, 0, 500)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidUmrahPilgrim(data, userId) {
+      return data.keys().hasAll(['id', 'ownerId', 'fullName', 'gender', 'nationality', 'passportNo', 'passportExpiry', 'birthDate', 'phone', 'groupCode', 'agentName', 'visaNo', 'visaStatus', 'visaIssueDate', 'makkahHotel', 'makkahRoomNo', 'madinahHotel', 'madinahRoomNo', 'jeddahHotel', 'jeddahRoomNo', 'roomType', 'flightNo', 'busNo', 'arrivalStatus', 'feeSAR', 'paidSAR', 'notes', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'ownerId', 'fullName', 'gender', 'nationality', 'passportNo', 'passportExpiry', 'birthDate', 'phone', 'groupCode', 'agentName', 'visaNo', 'visaStatus', 'visaIssueDate', 'makkahHotel', 'makkahRoomNo', 'madinahHotel', 'madinahRoomNo', 'jeddahHotel', 'jeddahRoomNo', 'roomType', 'flightNo', 'busNo', 'arrivalStatus', 'feeSAR', 'paidSAR', 'notes', 'createdAt', 'updatedAt'])
+        && data.id is number
+        && data.ownerId == userId
+        && isValidStr(data.fullName, 1, 160)
+        && data.gender in ['male', 'female']
+        && isValidStr(data.nationality, 1, 80)
+        && isValidStr(data.passportNo, 1, 60)
+        && isValidStr(data.passportExpiry, 0, 20)
+        && isValidStr(data.birthDate, 0, 20)
+        && isValidStr(data.phone, 0, 40)
+        && isValidStr(data.groupCode, 1, 80)
+        && isValidStr(data.agentName, 0, 160)
+        && isValidStr(data.visaNo, 0, 60)
+        && data.visaStatus in ['draft', 'submitted', 'issued', 'rejected', 'cancelled']
+        && isValidStr(data.visaIssueDate, 0, 20)
+        && isValidStr(data.makkahHotel, 0, 180)
+        && isValidStr(data.makkahRoomNo, 0, 40)
+        && isValidStr(data.madinahHotel, 0, 180)
+        && isValidStr(data.madinahRoomNo, 0, 40)
+        && isValidStr(data.jeddahHotel, 0, 180)
+        && isValidStr(data.jeddahRoomNo, 0, 40)
+        && data.roomType in ['single', 'double', 'triple', 'quad', 'quint', 'suite']
+        && isValidStr(data.flightNo, 0, 40)
+        && isValidStr(data.busNo, 0, 60)
+        && data.arrivalStatus in ['pending', 'arrived', 'departed']
+        && data.feeSAR is number && data.feeSAR >= 0
+        && data.paidSAR is number && data.paidSAR >= 0
+        && isValidStr(data.notes, 0, 500)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidUmrahFlight(data, userId) {
+      return data.keys().hasAll(['id', 'ownerId', 'flightNo', 'airline', 'direction', 'originAirport', 'destAirport', 'flightDate', 'flightTime', 'terminal', 'groupCode', 'paxCount', 'busAssigned', 'supervisorName', 'status', 'notes', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'ownerId', 'flightNo', 'airline', 'direction', 'originAirport', 'destAirport', 'flightDate', 'flightTime', 'terminal', 'groupCode', 'paxCount', 'busAssigned', 'supervisorName', 'status', 'notes', 'createdAt', 'updatedAt'])
+        && data.id is number
+        && data.ownerId == userId
+        && isValidStr(data.flightNo, 1, 40)
+        && isValidStr(data.airline, 1, 100)
+        && data.direction in ['arrival', 'departure']
+        && isValidStr(data.originAirport, 0, 80)
+        && isValidStr(data.destAirport, 0, 80)
+        && isValidStr(data.flightDate, 8, 20)
+        && isValidStr(data.flightTime, 0, 20)
+        && isValidStr(data.terminal, 0, 60)
+        && isValidStr(data.groupCode, 0, 80)
+        && data.paxCount is number && data.paxCount >= 0
+        && isValidStr(data.busAssigned, 0, 80)
+        && isValidStr(data.supervisorName, 0, 120)
+        && data.status in ['scheduled', 'landed', 'delayed', 'departed', 'cancelled']
+        && isValidStr(data.notes, 0, 500)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidUmrahFieldStaff(data, userId) {
+      return data.keys().hasAll(['id', 'ownerId', 'name', 'role', 'phone', 'city', 'assignedGroup', 'assignedBus', 'shiftStatus', 'notes', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'ownerId', 'name', 'role', 'phone', 'city', 'assignedGroup', 'assignedBus', 'shiftStatus', 'notes', 'createdAt', 'updatedAt'])
+        && data.id is number
+        && data.ownerId == userId
+        && isValidStr(data.name, 1, 160)
+        && data.role in ['supervisor', 'delegate', 'driver_coord']
+        && isValidStr(data.phone, 0, 40)
+        && data.city in ['makkah', 'madinah', 'jeddah', 'airport']
+        && isValidStr(data.assignedGroup, 0, 80)
+        && isValidStr(data.assignedBus, 0, 80)
+        && data.shiftStatus in ['on_duty', 'standby', 'off_duty']
+        && isValidStr(data.notes, 0, 500)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    // --- Employee Staff Login Accounts ---
+    match /staffAccounts/{staffUid} {
+      allow get: if isValidId(staffUid) && (
+        (isSignedIn() && request.auth.uid == staffUid)
+        || (isVerifiedUser() && existing().workspaceId == request.auth.uid)
+      );
+      allow list: if isVerifiedUser() && resource.data.workspaceId == request.auth.uid;
+      allow create: if isValidId(staffUid) && isVerifiedUser()
+        && isValidStaffAccount(incoming(), staffUid)
+        && incoming().workspaceId == request.auth.uid
+        && incoming().createdBy == request.auth.uid
+        && userProfileExists(request.auth.uid)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(staffUid) && isVerifiedUser()
+        && existing().workspaceId == request.auth.uid
+        && isValidStaffAccount(incoming(), staffUid)
+        && incoming().uid == existing().uid
+        && incoming().username == existing().username
+        && incoming().workspaceId == existing().workspaceId
+        && incoming().createdBy == existing().createdBy
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'role', 'active', 'permissions', 'employeeId', 'updatedAt']);
+      allow delete: if isValidId(staffUid) && isVerifiedUser()
+        && existing().workspaceId == request.auth.uid;
+    }
+
+    // --- Shared Google Email Invites ---
+    match /workspaceInvites/{inviteId} {
+      allow get: if isValidId(inviteId) && isVerifiedUser() && (
+        existing().workspaceId == request.auth.uid
+        || (request.auth.token.email is string && existing().email == request.auth.token.email.lower())
+      );
+      allow list: if isVerifiedUser() && (
+        resource.data.workspaceId == request.auth.uid
+        || (request.auth.token.email is string && resource.data.email == request.auth.token.email.lower())
+      );
+      allow create: if isValidId(inviteId) && isVerifiedUser()
+        && isValidWorkspaceInvite(incoming(), inviteId)
+        && incoming().workspaceId == request.auth.uid
+        && incoming().invitedBy == request.auth.uid
+        && userProfileExists(request.auth.uid)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(inviteId) && isVerifiedUser()
+        && existing().workspaceId == request.auth.uid
+        && isValidWorkspaceInvite(incoming(), inviteId)
+        && incoming().id == existing().id
+        && incoming().email == existing().email
+        && incoming().workspaceId == existing().workspaceId
+        && incoming().invitedBy == existing().invitedBy
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'role', 'active', 'permissions', 'updatedAt']);
+      allow delete: if isValidId(inviteId) && isVerifiedUser()
+        && existing().workspaceId == request.auth.uid;
+    }
+
+    // --- User Root Profile & Isolated PII ---
+    match /users/{userId} {
+      allow get: if isValidId(userId) && hasWorkspaceAccess(userId);
+      allow create: if isValidId(userId) && isOwner(userId)
+        && isValidUserProfile(incoming(), userId)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(userId) && isOwner(userId)
+        && isValidUserProfile(incoming(), userId)
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'rate', 'lang', 'updatedAt']);
+      allow delete: if false;
+
+      match /googleMembers/{memberUid} {
+        allow get: if isValidId(userId) && isValidId(memberUid) && (
+          isOwner(userId) || (isVerifiedUser() && request.auth.uid == memberUid)
+        );
+        allow list: if isVerifiedUser() && resource.data.workspaceId == request.auth.uid;
+        allow create: if isValidId(userId) && isValidId(memberUid) && isVerifiedUser()
+          && request.auth.uid == memberUid
+          && userProfileExists(userId)
+          && isValidGoogleMember(incoming(), userId, memberUid)
+          && request.auth.token.email is string
+          && incoming().email == request.auth.token.email.lower()
+          && exists(/databases/$(database)/documents/workspaceInvites/$(incoming().inviteId))
+          && get(/databases/$(database)/documents/workspaceInvites/$(incoming().inviteId)).data.workspaceId == userId
+          && get(/databases/$(database)/documents/workspaceInvites/$(incoming().inviteId)).data.email == request.auth.token.email.lower()
+          && get(/databases/$(database)/documents/workspaceInvites/$(incoming().inviteId)).data.active == true
+          && incoming().role == get(/databases/$(database)/documents/workspaceInvites/$(incoming().inviteId)).data.role
+          && incoming().active == true
+          && incoming().permissions == get(/databases/$(database)/documents/workspaceInvites/$(incoming().inviteId)).data.permissions
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time;
+        allow update: if isValidId(userId) && isValidId(memberUid) && isVerifiedUser()
+          && request.auth.uid == memberUid
+          && userProfileExists(userId)
+          && isValidGoogleMember(incoming(), userId, memberUid)
+          && incoming().uid == existing().uid
+          && incoming().workspaceId == existing().workspaceId
+          && incoming().email == existing().email
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && request.auth.token.email is string
+          && incoming().email == request.auth.token.email.lower()
+          && exists(/databases/$(database)/documents/workspaceInvites/$(incoming().inviteId))
+          && get(/databases/$(database)/documents/workspaceInvites/$(incoming().inviteId)).data.workspaceId == userId
+          && get(/databases/$(database)/documents/workspaceInvites/$(incoming().inviteId)).data.email == request.auth.token.email.lower()
+          && get(/databases/$(database)/documents/workspaceInvites/$(incoming().inviteId)).data.active == true
+          && incoming().role == get(/databases/$(database)/documents/workspaceInvites/$(incoming().inviteId)).data.role
+          && incoming().active == true
+          && incoming().permissions == get(/databases/$(database)/documents/workspaceInvites/$(incoming().inviteId)).data.permissions
+          && incoming().diff(existing()).affectedKeys().hasOnly(['inviteId', 'displayName', 'role', 'active', 'permissions', 'updatedAt']);
+        allow delete: if isValidId(userId) && isValidId(memberUid) && isOwner(userId);
+      }
+
+      match /private/{docId} {
+        allow get: if isValidId(userId) && docId == 'info' && isOwner(userId) && userProfileExists(userId);
+        allow create: if isValidId(userId) && docId == 'info' && isOwner(userId)
+          && existsAfter(/databases/$(database)/documents/users/$(userId))
+          && isValidUserPrivateInfo(incoming(), userId)
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time;
+        allow update: if isValidId(userId) && docId == 'info' && isOwner(userId) && userProfileExists(userId)
+          && isValidUserPrivateInfo(incoming(), userId)
+          && incoming().uid == existing().uid
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly(['email', 'updatedAt']);
+        allow delete: if false;
+      }
+
+      // --- Accounting Subcollections ---
+      match /entries/{entryId} {
+        allow get: if isValidId(userId) && isValidId(entryId) && hasWorkspaceAccess(userId) && userProfileExists(userId);
+        allow list: if hasWorkspaceAccess(userId) && resource.data.ownerId == userId;
+        allow create: if isValidId(userId) && isValidId(entryId) && hasWorkspaceAccess(userId) && userProfileExists(userId)
+          && isValidVisaEntry(incoming(), userId)
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time;
+        allow update: if isValidId(userId) && isValidId(entryId) && hasWorkspaceAccess(userId) && userProfileExists(userId)
+          && isValidVisaEntry(incoming(), userId)
+          && incoming().id == existing().id
+          && incoming().ownerId == existing().ownerId
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly(['groupNo', 'date', 'pax', 'customer', 'supplier', 'currency', 'buy', 'sell', 'rate', 'notes', 'updatedAt']);
+        allow delete: if isValidId(userId) && isValidId(entryId) && hasWorkspaceAccess(userId) && userProfileExists(userId);
+      }
+
+      match /transports/{transportId} {
+        allow get: if isValidId(userId) && isValidId(transportId) && hasWorkspaceAccess(userId) && userProfileExists(userId);
+        allow list: if hasWorkspaceAccess(userId) && resource.data.ownerId == userId;
+        allow create: if isValidId(userId) && isValidId(transportId) && hasWorkspaceAccess(userId) && userProfileExists(userId)
+          && isValidTransportEntry(incoming(), userId)
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time;
+        allow update: if isValidId(userId) && isValidId(transportId) && hasWorkspaceAccess(userId) && userProfileExists(userId)
+          && isValidTransportEntry(incoming(), userId)
+          && incoming().id == existing().id
+          && incoming().ownerId == existing().ownerId
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly(['refNo', 'groupNo', 'date', 'route', 'vehicleType', 'vehicleCount', 'pax', 'customer', 'supplier', 'currency', 'buy', 'sell', 'rate', 'driverName', 'plateNo', 'notes', 'updatedAt']);
+        allow delete: if isValidId(userId) && isValidId(transportId) && hasWorkspaceAccess(userId) && userProfileExists(userId);
+      }
+
+      match /hotels/{hotelId} {
+        allow get: if isValidId(userId) && isValidId(hotelId) && hasWorkspaceAccess(userId) && userProfileExists(userId);
+        allow list: if hasWorkspaceAccess(userId) && resource.data.ownerId == userId;
+        allow create: if isValidId(userId) && isValidId(hotelId) && hasWorkspaceAccess(userId) && userProfileExists(userId)
+          && isValidHotelBooking(incoming(), userId)
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time;
+        allow update: if isValidId(userId) && isValidId(hotelId) && hasWorkspaceAccess(userId) && userProfileExists(userId)
+          && isValidHotelBooking(incoming(), userId)
+          && incoming().id == existing().id
+          && incoming().ownerId == existing().ownerId
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly(['refNo', 'groupNo', 'bookingDate', 'city', 'hotelName', 'confirmationNo', 'checkIn', 'checkOut', 'nights', 'roomType', 'mealPlan', 'rooms', 'pax', 'status', 'customer', 'supplier', 'currency', 'buy', 'sell', 'rate', 'notes', 'updatedAt']);
+        allow delete: if isValidId(userId) && isValidId(hotelId) && hasWorkspaceAccess(userId) && userProfileExists(userId);
+      }
+
+      match /vouchers/{voucherId} {
+        allow get: if isValidId(userId) && isValidId(voucherId) && hasWorkspaceAccess(userId) && userProfileExists(userId);
+        allow list: if hasWorkspaceAccess(userId) && resource.data.ownerId == userId;
+        allow create: if isValidId(userId) && isValidId(voucherId) && hasWorkspaceAccess(userId) && userProfileExists(userId)
+          && isValidVoucherEntry(incoming(), userId)
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time;
+        allow update: if isValidId(userId) && isValidId(voucherId) && hasWorkspaceAccess(userId) && userProfileExists(userId)
+          && isValidVoucherEntry(incoming(), userId)
+          && incoming().no == existing().no
+          && incoming().ownerId == existing().ownerId
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly(['type', 'date', 'party', 'amount', 'currency', 'rate', 'amountSAR', 'note', 'updatedAt']);
+        allow delete: if isValidId(userId) && isValidId(voucherId) && hasWorkspaceAccess(userId) && userProfileExists(userId);
+      }
+
+      match /treasury/{txId} {
+        allow get: if isValidId(userId) && isValidId(txId) && hasWorkspaceAccess(userId) && userProfileExists(userId);
+        allow list: if hasWorkspaceAccess(userId) && resource.data.ownerId == userId;
+        allow create: if isValidId(userId) && isValidId(txId) && hasWorkspaceAccess(userId) && userProfileExists(userId)
+          && isValidTreasuryEntry(incoming(), userId)
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time;
+        allow update: if isValidId(userId) && isValidId(txId) && hasWorkspaceAccess(userId) && userProfileExists(userId)
+          && isValidTreasuryEntry(incoming(), userId)
+          && incoming().id == existing().id
+          && incoming().ownerId == existing().ownerId
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly(['refNo', 'date', 'type', 'category', 'account', 'amount', 'currency', 'rate', 'amountSAR', 'amountEGP', 'amountUSD', 'description', 'employeeId', 'employeeName', 'notes', 'updatedAt']);
+        allow delete: if isValidId(userId) && isValidId(txId) && hasWorkspaceAccess(userId) && userProfileExists(userId);
+      }
+
+      match /employees/{employeeId} {
+        allow get: if isValidId(userId) && isValidId(employeeId) && hasWorkspaceAccess(userId) && userProfileExists(userId);
+        allow list: if hasWorkspaceAccess(userId) && resource.data.ownerId == userId;
+        allow create: if isValidId(userId) && isValidId(employeeId) && hasWorkspaceAccess(userId) && userProfileExists(userId)
+          && isValidEmployeeRecord(incoming(), userId)
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time;
+        allow update: if isValidId(userId) && isValidId(employeeId) && hasWorkspaceAccess(userId) && userProfileExists(userId)
+          && isValidEmployeeRecord(incoming(), userId)
+          && incoming().id == existing().id
+          && incoming().ownerId == existing().ownerId
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly(['code', 'name', 'jobTitle', 'department', 'phone', 'nationalId', 'hireDate', 'baseSalary', 'housingAllowance', 'transportAllowance', 'otherAllowance', 'status', 'salaryDay', 'notes', 'updatedAt']);
+        allow delete: if isValidId(userId) && isValidId(employeeId) && hasWorkspaceAccess(userId) && userProfileExists(userId);
+      }
+
+      match /payroll/{payrollId} {
+        allow get: if isValidId(userId) && isValidId(payrollId) && hasWorkspaceAccess(userId) && userProfileExists(userId);
+        allow list: if hasWorkspaceAccess(userId) && resource.data.ownerId == userId;
+        allow create: if isValidId(userId) && isValidId(payrollId) && hasWorkspaceAccess(userId) && userProfileExists(userId)
+          && isValidPayrollRecord(incoming(), userId)
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time;
+        allow update: if isValidId(userId) && isValidId(payrollId) && hasWorkspaceAccess(userId) && userProfileExists(userId)
+          && isValidPayrollRecord(incoming(), userId)
+          && incoming().id == existing().id
+          && incoming().ownerId == existing().ownerId
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly(['refNo', 'date', 'month', 'employeeId', 'employeeName', 'recordType', 'amount', 'currency', 'rate', 'amountSAR', 'amountEGP', 'amountUSD', 'postToTreasury', 'treasuryAccount', 'linkedTreasuryId', 'notes', 'updatedAt']);
+        allow delete: if isValidId(userId) && isValidId(payrollId) && hasWorkspaceAccess(userId) && userProfileExists(userId);
+      }
+
+      match /customers/{customerId} {
+        allow get: if isValidId(userId) && isValidId(customerId) && hasWorkspaceAccess(userId) && userProfileExists(userId);
+        allow list: if hasWorkspaceAccess(userId) && resource.data.ownerId == userId;
+        allow create: if isValidId(userId) && isValidId(customerId) && hasWorkspaceAccess(userId) && userProfileExists(userId)
+          && isValidCustomerMaster(incoming(), userId)
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time;
+        allow update: if isValidId(userId) && isValidId(customerId) && hasWorkspaceAccess(userId) && userProfileExists(userId)
+          && isValidCustomerMaster(incoming(), userId)
+          && incoming().code == existing().code
+          && incoming().ownerId == existing().ownerId
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'note', 'updatedAt']);
+        allow delete: if isValidId(userId) && isValidId(customerId) && hasWorkspaceAccess(userId) && userProfileExists(userId);
+      }
+
+      match /suppliers/{supplierId} {
+        allow get: if isValidId(userId) && isValidId(supplierId) && hasWorkspaceAccess(userId) && userProfileExists(userId);
+        allow list: if hasWorkspaceAccess(userId) && resource.data.ownerId == userId;
+        allow create: if isValidId(userId) && isValidId(supplierId) && hasWorkspaceAccess(userId) && userProfileExists(userId)
+          && isValidSupplierMaster(incoming(), userId)
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time;
+        allow update: if isValidId(userId) && isValidId(supplierId) && hasWorkspaceAccess(userId) && userProfileExists(userId)
+          && isValidSupplierMaster(incoming(), userId)
+          && incoming().code == existing().code
+          && incoming().ownerId == existing().ownerId
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'category', 'note', 'updatedAt']);
+        allow delete: if isValidId(userId) && isValidId(supplierId) && hasWorkspaceAccess(userId) && userProfileExists(userId);
+      }
+
+      match /cycleOperations/{opId} {
+        allow get: if isValidId(userId) && isValidId(opId) && hasWorkspaceAccess(userId) && userProfileExists(userId);
+        allow list: if hasWorkspaceAccess(userId) && resource.data.ownerId == userId;
+        allow create: if isValidId(userId) && isValidId(opId) && hasWorkspaceAccess(userId) && userProfileExists(userId)
+          && isValidCycleOperation(incoming(), userId)
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time;
+        allow update: if isValidId(userId) && isValidId(opId) && hasWorkspaceAccess(userId) && userProfileExists(userId)
+          && isValidCycleOperation(incoming(), userId)
+          && incoming().id == existing().id
+          && incoming().ownerId == existing().ownerId
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly(['groupNo', 'stageKey', 'stageLabel', 'status', 'direction', 'totalPax', 'totalBus', 'date', 'time', 'fromLocation', 'toLocation', 'hotelName', 'routeDetails', 'vehicleType', 'vehicleCount', 'supplier', 'customer', 'driverName', 'driverPhone', 'plateNo', 'buy', 'sell', 'notes', 'linkedTransportId', 'updatedAt']);
+        allow delete: if isValidId(userId) && isValidId(opId) && hasWorkspaceAccess(userId) && userProfileExists(userId);
+      }
+
+      match /invoices/{invoiceId} {
+        allow get: if isValidId(userId) && isValidId(invoiceId) && hasWorkspaceAccess(userId) && userProfileExists(userId);
+        allow list: if hasWorkspaceAccess(userId) && resource.data.ownerId == userId;
+        allow create: if isValidId(userId) && isValidId(invoiceId) && hasWorkspaceAccess(userId) && userProfileExists(userId)
+          && isValidGroupInvoice(incoming(), userId)
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time;
+        allow update: if isValidId(userId) && isValidId(invoiceId) && hasWorkspaceAccess(userId) && userProfileExists(userId)
+          && isValidGroupInvoice(incoming(), userId)
+          && incoming().id == existing().id
+          && incoming().ownerId == existing().ownerId
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly(['invoiceNo', 'date', 'groupNo', 'groupName', 'pax', 'visaPrice', 'multiEntryVisaCount', 'multiEntryVisaPrice', 'minPaxCount', 'minPaxRate', 'badrPrice', 'trainStationPrice', 'taifPrice', 'hudaibiyahPrice', 'customSegmentLabel', 'customSegmentPrice', 'customSegmentsJson', 'totalUSD', 'dueDate', 'paymentStatus', 'notes', 'updatedAt']);
+        allow delete: if isValidId(userId) && isValidId(invoiceId) && hasWorkspaceAccess(userId) && userProfileExists(userId);
+      }
+
+      match /umrahAgents/{agentId} {
+        allow get: if isValidId(userId) && isValidId(agentId) && hasWorkspaceAccess(userId) && userProfileExists(userId);
+        allow list: if hasWorkspaceAccess(userId) && resource.data.ownerId == userId;
+        allow create: if isValidId(userId) && isValidId(agentId) && hasWorkspaceAccess(userId) && userProfileExists(userId)
+          && isValidUmrahAgent(incoming(), userId)
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time;
+        allow update: if isValidId(userId) && isValidId(agentId) && hasWorkspaceAccess(userId) && userProfileExists(userId)
+          && isValidUmrahAgent(incoming(), userId)
+          && incoming().id == existing().id
+          && incoming().ownerId == existing().ownerId
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly(['code', 'name', 'country', 'licenseNo', 'contactPerson', 'phone', 'email', 'commissionSAR', 'status', 'notes', 'updatedAt']);
+        allow delete: if isValidId(userId) && isValidId(agentId) && hasWorkspaceAccess(userId) && userProfileExists(userId);
+      }
+
+      match /umrahGroups/{groupId} {
+        allow get: if isValidId(userId) && isValidId(groupId) && hasWorkspaceAccess(userId) && userProfileExists(userId);
+        allow list: if hasWorkspaceAccess(userId) && resource.data.ownerId == userId;
+        allow create: if isValidId(userId) && isValidId(groupId) && hasWorkspaceAccess(userId) && userProfileExists(userId)
+          && isValidUmrahGroup(incoming(), userId)
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time;
+        allow update: if isValidId(userId) && isValidId(groupId) && hasWorkspaceAccess(userId) && userProfileExists(userId)
+          && isValidUmrahGroup(incoming(), userId)
+          && incoming().id == existing().id
+          && incoming().ownerId == existing().ownerId
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly(['groupCode', 'groupName', 'season', 'programType', 'agentName', 'supervisorName', 'targetPax', 'visaBuySAR', 'visaSellSAR', 'packagePriceSAR', 'arrivalDate', 'departureDate', 'status', 'notes', 'updatedAt']);
+        allow delete: if isValidId(userId) && isValidId(groupId) && hasWorkspaceAccess(userId) && userProfileExists(userId);
+      }
+
+      match /umrahPilgrims/{pilgrimId} {
+        allow get: if isValidId(userId) && isValidId(pilgrimId) && hasWorkspaceAccess(userId) && userProfileExists(userId);
+        allow list: if hasWorkspaceAccess(userId) && resource.data.ownerId == userId;
+        allow create: if isValidId(userId) && isValidId(pilgrimId) && hasWorkspaceAccess(userId) && userProfileExists(userId)
+          && isValidUmrahPilgrim(incoming(), userId)
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time;
+        allow update: if isValidId(userId) && isValidId(pilgrimId) && hasWorkspaceAccess(userId) && userProfileExists(userId)
+          && isValidUmrahPilgrim(incoming(), userId)
+          && incoming().id == existing().id
+          && incoming().ownerId == existing().ownerId
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly(['fullName', 'gender', 'nationality', 'passportNo', 'passportExpiry', 'birthDate', 'phone', 'groupCode', 'agentName', 'visaNo', 'visaStatus', 'visaIssueDate', 'makkahHotel', 'makkahRoomNo', 'madinahHotel', 'madinahRoomNo', 'jeddahHotel', 'jeddahRoomNo', 'roomType', 'flightNo', 'busNo', 'arrivalStatus', 'feeSAR', 'paidSAR', 'notes', 'updatedAt']);
+        allow delete: if isValidId(userId) && isValidId(pilgrimId) && hasWorkspaceAccess(userId) && userProfileExists(userId);
+      }
+
+      match /umrahFlights/{flightId} {
+        allow get: if isValidId(userId) && isValidId(flightId) && hasWorkspaceAccess(userId) && userProfileExists(userId);
+        allow list: if hasWorkspaceAccess(userId) && resource.data.ownerId == userId;
+        allow create: if isValidId(userId) && isValidId(flightId) && hasWorkspaceAccess(userId) && userProfileExists(userId)
+          && isValidUmrahFlight(incoming(), userId)
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time;
+        allow update: if isValidId(userId) && isValidId(flightId) && hasWorkspaceAccess(userId) && userProfileExists(userId)
+          && isValidUmrahFlight(incoming(), userId)
+          && incoming().id == existing().id
+          && incoming().ownerId == existing().ownerId
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly(['flightNo', 'airline', 'direction', 'originAirport', 'destAirport', 'flightDate', 'flightTime', 'terminal', 'groupCode', 'paxCount', 'busAssigned', 'supervisorName', 'status', 'notes', 'updatedAt']);
+        allow delete: if isValidId(userId) && isValidId(flightId) && hasWorkspaceAccess(userId) && userProfileExists(userId);
+      }
+
+      match /umrahFieldStaff/{staffId} {
+        allow get: if isValidId(userId) && isValidId(staffId) && hasWorkspaceAccess(userId) && userProfileExists(userId);
+        allow list: if hasWorkspaceAccess(userId) && resource.data.ownerId == userId;
+        allow create: if isValidId(userId) && isValidId(staffId) && hasWorkspaceAccess(userId) && userProfileExists(userId)
+          && isValidUmrahFieldStaff(incoming(), userId)
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time;
+        allow update: if isValidId(userId) && isValidId(staffId) && hasWorkspaceAccess(userId) && userProfileExists(userId)
+          && isValidUmrahFieldStaff(incoming(), userId)
+          && incoming().id == existing().id
+          && incoming().ownerId == existing().ownerId
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'role', 'phone', 'city', 'assignedGroup', 'assignedBus', 'shiftStatus', 'notes', 'updatedAt']);
+        allow delete: if isValidId(userId) && isValidId(staffId) && hasWorkspaceAccess(userId) && userProfileExists(userId);
+      }
+    }
+  }
+}
